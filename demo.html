@@ -1,0 +1,109 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <title>SDLT JavaScript Demo</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <style> body { font-family: Arial; } section { margin: 20px; } </style>
+</head>
+<body>
+    <h1>Swift Deep Link Token (SDLT) JS Prototype Demo</h1>
+    
+    <section>
+        <h2>Create Token</h2>
+        <label>Environment: <select id="env"><option>debug</option><option>production</option><option>testing</option></select></label><br>
+        <label>Parameters (JSON): <textarea id="params" rows="3" cols="50">{ "param1": "value", "flags": 1 }</textarea></label><br>
+        <label>Secret: <input id="secret" value="mySecretKey"></label><br>
+        <button onclick="createToken()">Generate</button>
+        <p>Deep Link: <span id="createOutput"></span></p>
+    </section>
+    
+    <section>
+        <h2>Validate Token</h2>
+        <label>Token: <input id="validateToken" size="50"></label><br>
+        <label>Secret: <input id="validateSecret" value="mySecretKey"></label><br>
+        <button onclick="validateToken()">Validate</button>
+        <p>Result: <span id="validateOutput"></span></p>
+    </section>
+    
+    <section>
+        <h2>Merge Two Deep Links</h2>
+        <label>Left Deep Link: <input id="leftLink" size="50" value="myapp://action?sdlt=eyAiYWxnIjogIkhTMjU2IiwgInR5cCI6ICJTRExUIiwgImVudiI6ICJkZWJ1ZyIgfQ==.eyAicGFyYW0xIjogInZhbHVlIiwgImZsYWdzIjogMX0=.signature"></label><br>
+        <label>Right Deep Link: <input id="rightLink" size="50" value="myapp://action?sdlt=eyAiYWxnIjogIkhTMjU2IiwgInR5cCI6ICJTRExUIiwgImVudiI6ICJkZWJ1ZyIgfQ==.eyAiZmxhZ3MiOiAyLCAicGFyYW0yIjogM30=.signature"></label><br>
+        <label>Secret: <input id="mergeSecret" value="mySecretKey"></label><br>
+        <button onclick="mergeLinks()">Merge</button>
+        <p>Merged Deep Link: <span id="mergeOutput"></span></p>
+    </section>
+    
+    <script>
+        function base64UrlEncode(str) {
+            return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
+        }
+        function base64UrlDecode(str) {
+            return atob(str.replace(/-/g, '+').replace(/_/g, '/') + '=='.slice((str.length % 4) * -1));
+        }
+        function sign(data, secret) {
+            return base64UrlEncode(CryptoJS.HmacSHA256(data, secret).toString(CryptoJS.enc.Latin1));
+        }
+        function createToken() {
+            const env = document.getElementById('env').value;
+            const params = JSON.parse(document.getElementById('params').value);
+            const secret = document.getElementById('secret').value;
+            const header = { alg: 'HS256', typ: 'SDLT', env };
+            const headerB64 = base64UrlEncode(JSON.stringify(header));
+            const payloadB64 = base64UrlEncode(JSON.stringify(params));
+            const sig = sign(`${headerB64}.${payloadB64}`, secret);
+            const token = `${headerB64}.${payloadB64}.${sig}`;
+            document.getElementById('createOutput').textContent = `myapp://action?sdlt=${token}`;
+        }
+        function validateToken() {
+            const token = document.getElementById('validateToken').value;
+            const secret = document.getElementById('validateSecret').value;
+            const parts = token.split('.');
+            if (parts.length !== 3) return document.getElementById('validateOutput').textContent = 'Invalid token';
+            const [headerB64, payloadB64, sig] = parts;
+            const expectedSig = sign(`${headerB64}.${payloadB64}`, secret);
+            if (sig !== expectedSig) return document.getElementById('validateOutput').textContent = 'Invalid signature';
+            const payload = JSON.parse(base64UrlDecode(payloadB64));
+            document.getElementById('validateOutput').textContent = `Valid. Payload: ${JSON.stringify(payload)}`;
+        }
+        function extractTokenFromLink(link) {
+            const url = new URL(link);
+            return url.searchParams.get('sdlt');
+        }
+        function mergePayloads(leftPayload, rightPayload) {
+            const merged = { ...rightPayload };
+            for (const key in leftPayload) {
+                if (key in merged) {
+                    if (Number.isInteger(leftPayload[key]) && Number.isInteger(merged[key])) {
+                        merged[key] = leftPayload[key] | merged[key]; // Bitwise OR for integers
+                    } else {
+                        merged[key] = leftPayload[key]; // Left wins
+                    }
+                } else {
+                    merged[key] = leftPayload[key];
+                }
+            }
+            return merged;
+        }
+        function mergeLinks() {
+            const leftLink = document.getElementById('leftLink').value;
+            const rightLink = document.getElementById('rightLink').value;
+            const secret = document.getElementById('mergeSecret').value;
+            const leftToken = extractTokenFromLink(leftLink);
+            const rightToken = extractTokenFromLink(rightLink);
+            const leftParts = leftToken.split('.');
+            const rightParts = rightToken.split('.');
+            const leftHeader = JSON.parse(base64UrlDecode(leftParts[0]));
+            const leftPayload = JSON.parse(base64UrlDecode(leftParts[1]));
+            const rightPayload = JSON.parse(base64UrlDecode(rightParts[1]));
+            const mergedPayload = mergePayloads(leftPayload, rightPayload);
+            const headerB64 = base64UrlEncode(JSON.stringify(leftHeader)); // Use left header
+            const payloadB64 = base64UrlEncode(JSON.stringify(mergedPayload));
+            const sig = sign(`${headerB64}.${payloadB64}`, secret);
+            const newToken = `${headerB64}.${payloadB64}.${sig}`;
+            document.getElementById('mergeOutput').textContent = `myapp://action?sdlt=${newToken}`;
+        }
+    </script>
+</body>
+</html>
